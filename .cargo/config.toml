@@ -1,0 +1,11 @@
+[env]
+AR = { value = "/usr/bin/ar", force = true }
+RANLIB = { value = "/usr/bin/ranlib", force = true }
+NM = { value = "/usr/bin/nm", force = true }
+
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc"
+rustflags = ["-C", "target-feature=-crt-static"]
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
