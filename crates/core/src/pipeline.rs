@@ -400,56 +400,58 @@ impl Pipeline {
                     self.metrics.flush_metrics().await?;
                 }
                 update = update_receiver.recv() => {
-                    match update {
-                        Some((update, datasource_id)) => {
-                            self
-                                .metrics.increment_counter("updates_received", 1)
-                                .await?;
+                    tokio::spawn(async move {
+                        match update {
+                            Some((update, datasource_id)) => {
+                                self
+                                    .metrics.increment_counter("updates_received", 1)
+                                    .await?;
 
-                            let start = Instant::now();
-                            let process_result = self.process(update.clone(), datasource_id.clone()).await;
-                            let time_taken_nanoseconds = start.elapsed().as_nanos();
-                            let time_taken_milliseconds = time_taken_nanoseconds / 1_000_000;
+                                let start = Instant::now();
+                                let process_result = self.process(update.clone(), datasource_id.clone()).await;
+                                let time_taken_nanoseconds = start.elapsed().as_nanos();
+                                let time_taken_milliseconds = time_taken_nanoseconds / 1_000_000;
 
-                            self
-                                .metrics
-                                .record_histogram("updates_process_time_nanoseconds", time_taken_nanoseconds as f64)
-                                .await?;
+                                self
+                                    .metrics
+                                    .record_histogram("updates_process_time_nanoseconds", time_taken_nanoseconds as f64)
+                                    .await?;
 
-                            self
-                                .metrics
-                                .record_histogram("updates_process_time_milliseconds", time_taken_milliseconds as f64)
-                                .await?;
+                                self
+                                    .metrics
+                                    .record_histogram("updates_process_time_milliseconds", time_taken_milliseconds as f64)
+                                    .await?;
 
-                            match process_result {
-                                Ok(_) => {
-                                    self
-                                        .metrics.increment_counter("updates_successful", 1)
-                                        .await?;
+                                match process_result {
+                                    Ok(_) => {
+                                        self
+                                            .metrics.increment_counter("updates_successful", 1)
+                                            .await?;
 
-                                    log::trace!("processed update")
-                                }
-                                Err(error) => {
-                                    log::error!("error processing update ({:?}): {:?}", update, error);
-                                    self.metrics.increment_counter("updates_failed", 1).await?;
-                                }
-                            };
+                                        log::trace!("processed update")
+                                    }
+                                    Err(error) => {
+                                        log::error!("error processing update ({:?}): {:?}", update, error);
+                                        self.metrics.increment_counter("updates_failed", 1).await?;
+                                    }
+                                };
 
-                            self
-                                .metrics.increment_counter("updates_processed", 1)
-                                .await?;
+                                self
+                                    .metrics.increment_counter("updates_processed", 1)
+                                    .await?;
 
-                            self
-                                .metrics.update_gauge("updates_queued", update_receiver.len() as f64)
-                                .await?;
+                                self
+                                    .metrics.update_gauge("updates_queued", update_receiver.len() as f64)
+                                    .await?;
+                            }
+                            None => {
+                                log::info!("update_receiver closed, shutting down.");
+                                self.metrics.flush_metrics().await?;
+                                self.metrics.shutdown_metrics().await?;
+                                break;
+                            }
                         }
-                        None => {
-                            log::info!("update_receiver closed, shutting down.");
-                            self.metrics.flush_metrics().await?;
-                            self.metrics.shutdown_metrics().await?;
-                            break;
-                        }
-                    }
+                    });
                 }
             }
         }
